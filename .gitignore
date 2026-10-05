@@ -1,0 +1,17 @@
+# 游戏数据一律不入库（也不随包）—— 见 data/README.md
+*.blk
+*.blkx
+inputs/
+data/*.blk
+datamine/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+results/
+.mypy_cache/
