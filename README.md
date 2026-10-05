@@ -3,6 +3,11 @@
 War Thunder 主动雷达弹（ARH）的**纯求解器包**：把 6DOF 内核 + 求解层抽出来，**不含 GUI、不含
 出图、不含产物**。运行期**只要 numpy**（`import missile_solver` 不会带进 matplotlib）。
 
+📄 **接口契约（第三方从这里读）**：[`docs/SOLVER-API.md`](docs/SOLVER-API.md) —— `Scene` 的字段/坐标
+约定/派生几何/校验、输入映射（`ΔV,BC → 乘数`；`β,γ` 平面）、`Shot` 与内核 68 列 `_CF_COLUMNS`、
+内核能力边界（实测，不是转述）、两个档位，以及"**换求解器只动一个文件**"的步骤。
+⚠ **本包只提供数据与计算** —— 画法、页面、产物（图册 / WebUI / 沙盒）在别的仓。
+
 * 内核：`src/missile_solver/kernel/wt_missile.py` —— 2.59.0.28 原生 6DOF 例程的纯 Python 复刻
   （`MODEL = python-game-6dof-v1`，**不执行**游戏 ELF）。**逐字节保留**，SHA-256 即包的硬身份：
   `dad09caea2c31e0ef26a8327f3bb96c50f83b91bcb29d6b05616f23faba2f730`。
