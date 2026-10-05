@@ -45,6 +45,95 @@ HOME_ENV = "MISSILE_SOLVER_HOME"
 #: 数据目录里必须有的三样（缺一个就报错，别让内核去撞）。
 REQUIRED = ("manifest.json", "presets.json")
 
+#: 清单里另外那几条是**解包器侧的辅助件**：内核不读 ⇒ 有就核对、没有不算失败。
+OPTIONAL_AUX = ("metadata.txt", "rocket-inventory.json", "rvv-ae-extraction.txt")
+
+
+def checksums_path() -> Path:
+    """哈希表（`checksums.json`）的落点：包内那份优先（装完也在），否则用仓库里的 `data/`。
+
+    可用 `MISSILE_SOLVER_CHECKSUMS` 显式指定。
+    """
+    env = os.environ.get("MISSILE_SOLVER_CHECKSUMS")
+    cands = ([Path(env).expanduser()] if env else []) + [
+        PACKAGE_DIR / "data" / "checksums.json",                  # 随包发布的那份（wheel 里也有）
+        PACKAGE_DIR.parent.parent / "data" / "checksums.json",    # 源码树里的那份（开发态）
+    ]
+    for p in cands:
+        if p.is_file():
+            return p
+    raise RuntimeError(
+        "找不到 checksums.json（哈希表）：请 `pip install` 本包，或用源码树里的 "
+        "`data/checksums.json`，也可用环境变量 MISSILE_SOLVER_CHECKSUMS 指定。")
+
+
+def verify_data(directory=None) -> tuple:
+    """**数据闸门**：逐条核对内核要的那套数据，返回 `(ok, problems)`。
+
+    `directory=None` ⇒ 用 `DATA_DIR`。`problems` 是给人看的字符串；**只有硬失败算失败**
+    （"多出来的文件"/"可选件缺席"这类提醒带 `⚠` 前缀，不影响 `ok`）。核对口径：
+
+    * `files`：168 份 `*.blk` + `presets.json` ⇒ 逐条 sha256 必须相符；
+    * `manifest.json`：它**不在自己的 files 表里** ⇒ 单独记的 `manifest_sha256` 必须相符；
+    * 3 个解包器侧辅助件：在就核、缺席不算失败。
+
+    这是"手上这份数据**就是**本包钉的那个版本"的机器证明（不是"文件在"）。
+    """
+    import json
+
+    problems: list = []
+    try:
+        table = json.loads(checksums_path().read_text(encoding="utf-8"))
+    except Exception as exc:                                        # noqa: BLE001
+        return False, [f"哈希表读不了：{exc}"]
+
+    root = Path(directory).expanduser() if directory is not None else data_dir()
+    if root is None or not root.is_dir():
+        return False, [f"{root!r} 不是目录"]
+    want = table.get("files") or {}
+    optional = table.get("optional_files") or {}
+
+    missing, mismatched = [], []
+    for name, digest in sorted(want.items()):
+        p = root / name
+        if not p.is_file():
+            missing.append(name)
+        else:
+            got = _sha256(p)
+            if got != digest:
+                mismatched.append(f"{name}（期望 {digest[:16]}…，实际 {got[:16]}…）")
+    man = root / "manifest.json"
+    man_bad = []
+    if not man.is_file():
+        missing.append("manifest.json")
+    elif _sha256(man) != str(table.get("manifest_sha256") or ""):
+        man_bad.append(f"manifest.json 哈希不符（期望 {str(table.get('manifest_sha256'))[:16]}…）")
+    opt_bad, opt_absent = [], []
+    for name, digest in sorted(optional.items()):
+        p = root / name
+        if not p.is_file():
+            opt_absent.append(name)
+        elif _sha256(p) != digest:
+            opt_bad.append(name)
+
+    if missing:
+        problems.append(f"缺件 {len(missing)} 条：{', '.join(missing[:8])}"
+                        + ("…" if len(missing) > 8 else ""))
+    if mismatched:
+        problems.append(f"哈希不符 {len(mismatched)} 条：" + "；".join(mismatched[:6])
+                        + ("…" if len(mismatched) > 6 else ""))
+    problems.extend(man_bad)
+    if opt_bad:
+        problems.append(f"（可选辅助件哈希不符：{opt_bad}）")
+    known = set(want) | {"manifest.json"} | set(optional)
+    extra = sorted(p.name for p in root.glob("*") if p.is_file() and p.name not in known)
+    if extra:
+        problems.append(f"⚠ 多出来的文件 {len(extra)} 个（不影响内核）：{extra[:6]}")
+    if opt_absent:
+        problems.append(f"⚠ 可选辅助件缺席 {len(opt_absent)} 个（内核不读，不算失败）")
+    hard = bool(missing or mismatched or man_bad or opt_bad)
+    return (not hard), problems
+
 
 class DataNotConfigured(RuntimeError):
     """`DATA_DIR` 没设 / 不存在 / 内容不成套 —— 一律给出"怎么弄到数据"的可读指引。"""

@@ -47,10 +47,10 @@ def test_kernel_source_declares_the_expected_identity():
 
 
 def test_paths_point_into_the_package_not_a_repo():
-    """抽取的痕迹：路径必须落在**包内 / 用户缓存**，不许指回 `E:\\导弹包线图*`。"""
+    """抽取的痕迹：路径必须落在**包内 / 用户缓存**，不许指回上游抽取源仓库的目录名。"""
     assert spec.PACKAGE_DIR.is_dir() and (spec.PACKAGE_DIR / "kernel").is_dir()
     assert spec.KERNEL_DIR == spec.PACKAGE_DIR / "kernel"
-    assert "导弹包线图" not in str(_data.KERNEL_HOME)
+    assert "导弹包线图" not in str(_data.KERNEL_HOME), _data.KERNEL_HOME
     assert _data.KERNEL_HOME.name == GOLD_SOLVER_SHA256[:12], _data.KERNEL_HOME
 
 

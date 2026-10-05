@@ -8,8 +8,15 @@ War Thunder 主动雷达弹（ARH）的**纯求解器包**：把 6DOF 内核 + �
   `dad09caea2c31e0ef26a8327f3bb96c50f83b91bcb29d6b05616f23faba2f730`。
 * 求解层：`spec`（契约）/ `solver`（唯一与内核接触的面）/ `mapping`（ΔV·BC ↔ 乘数）/
   `pool`（11 弹池）/ `bg`（β–ginv 能力平面）/ `catalog`（全弹池目录，168 预设）。
-* 出处：从 `E:\导弹包线图-release`（私有仓）**复制**抽取，源提交
-  **`3850547477f3b988c86750b8cdd0df57a5131dfd`**（`3850547`）。
+* 出处：从上游抽取源仓库（**私有**，含 GUI/出图/产物的那一个）**复制**抽取，源提交
+  **`3850547477f3b988c86750b8cdd0df57a5131dfd`**（`3850547`）—— 只取求解器内核与求解层。
+
+**两条身份口径**（本仓的验收就靠这两条）：
+
+| 面 | 谁是权威 | 怎么核 |
+| --- | --- | --- |
+| **内核** | `solver.SOLVER_SHA256`（= `_data.KERNEL_SHA256` = `kernel/wt_missile.py` 的 sha256） | 判据①；换内核必须同时改这两处常量并在提交里说明 |
+| **数据** | `data/checksums.json` 的逐条 sha256 | `missile_solver.verify_data(dir)` / `fetch_data.py --verify` |
 
 ## 装
 
@@ -22,16 +29,20 @@ pip install .            # 或：pip install -e .
 ## 数据（**本包不分发游戏数据**）
 
 内核要的是**解包器产出的 BLK 文本**（168 份 `*.blk` + `presets.json` + `manifest.json`），
-**数据权利归 Gaijin，本仓不含、也不随包**。自己准备一份，然后**设环境变量 `DATA_DIR`**：
+**数据权利归 Gaijin，本仓不含、也不随包**。规范来源是作者的交付包
+`wt-missile-backend-runtime` 里的 `inputs/resources/<版本>/**`（**完整形态**：168 份 blk +
+`presets.json` + `manifest.json`；最小形态只有 11 份且缺 `presets.json`，**不能**用）。
+自己准备一份，然后**设环境变量 `DATA_DIR`**：
 
 ```powershell
-$env:DATA_DIR = "E:\path\to\2.59.0.28-blk"      # 里面直接有 manifest.json / presets.json / 168 份 *.blk
+$env:DATA_DIR = "<放 168 份 blk + presets.json + manifest.json 的目录>"
 ```
 
-* 数据从哪来、为什么不能用 Datamine 仓里的 JSON（实测同一枚弹 29,345 B JSON vs 20,972 B BLK）
-  ⇒ **[`data/README.md`](data/README.md)**；
-* 取上游 JSON（出处核对）与**逐条 sha256 校验**（172 条，不符非零退出）：
-  `python scripts/fetch_data.py --help`；
+* 数据从哪来、两种形态怎么分、为什么不能用 Datamine 仓里的 JSON（实测同一枚弹
+  29,345 B JSON vs 20,972 B BLK，哈希对不上）⇒ **[`data/README.md`](data/README.md)**；
+* **数据闸门**（169 条 + manifest 逐条 sha256；不符非零退出）：
+  `python scripts/fetch_data.py --verify <DIR>`，或用包内 API
+  `ok, problems = missile_solver.verify_data("<DIR>")`（脚本调的就是它，只有一份实现）；
 * `DATA_DIR` 没设 / 指错时，报错是**可读的一句话 + 三步指引**（不静默）：
   `missile_solver.DataNotConfigured`。
 * ⚠ `import missile_solver` **不需要**数据；只有真要用内核（跑工况 / 读 blk / 建目录）时才要求它。
@@ -60,15 +71,26 @@ shot = solver.run(scene, missile=std.native, scaling=scaling, tier="standard")
 print(shot.t_hit, shot.hit, len(shot.rows))                  # rows 的列名 = solver.output_columns()
 ```
 
-`tier="fast"` 会走 C 内核（需要编译器或本机已编译的 fast 缓存）；两档数值逐位一致，
-没有工具链时用默认的 `standard`（纯 Python，金标工况约 1~2 s）。
+### 档位 `standard` / `fast`
+
+| 档位 | 含义 | 什么时候用 |
+| --- | --- | --- |
+| `standard`（默认） | 同一套物理，纯 Python 逐步积分 | **没有 C 编译器的机器就用它**；金标工况约 1~2 s |
+| `fast` | 同一套物理，编译成 C 内核（`fastmode`） | 想快 20× 左右；**没有编译器时它会自动退回 `python-legacy`** 并在 `summary`/`Shot` 里报告原因 |
+
+* 两档**数值逐位一致**（同一条金标 `t_hit = 45.1861 s`），差别只在耗时；
+* `fast` 的编译产物按内核哈希缓存在用户缓存目录，可用 **`WT_MISSILE_FAST_CACHE`** 指向
+  **已有的**缓存目录（换机器时不必重新编译）；
+* 本仓判据一律用 `standard`，**不要求工具链** —— 想测 `fast` 得自己保证机器上有编译器
+  或缓存，否则测的是"退回纯 Python"的那条路。
+* 内核身份以 **`SOLVER_SHA256`** 为准，数据以 **`verify_data()` / `--verify`** 为准（见上面的表）。
 
 ## 目录（`catalog`）与静态站的契约
 
 `catalog.build()` 把内核**全部 168 个预设**算成 `{dv, bc, gamma, ginv, …}` 的目录
 （159 可算 / 9 条 `reason="需要动态解算"`，内核原话另存 `kernel_reason`）。
-`catalog.write_json()` 落盘的 `missile_catalog.json` 就是**静态站**（`E:\导弹包线图-release`
-里的 `webui_static/figs2d.js`）用来在浏览器里算轴域、画散点的那份数据 —— 本包是它的**生产端**：
+`catalog.write_json()` 落盘的 `missile_catalog.json` 就是**静态站**（上游抽取源仓库里的
+`webui_static/figs2d.js`）用来在浏览器里算轴域、画散点的那份数据 —— 本包是它的**生产端**：
 
 ```python
 from missile_solver import catalog

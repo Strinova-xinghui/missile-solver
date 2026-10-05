@@ -1,12 +1,13 @@
 # `missile-solver` —— War Thunder ARH 主动弹的纯求解器包
 #
-# 设计口径（与现有仓 `E:\导弹包线图-release` 的关系见 README）：
+# 设计口径（与上游抽取源仓库的关系见 README 的"出处"一行）：
 #   * **只抽求解器内核 + 求解层**：无 GUI、无出图、无产物 ⇒ 依赖里**不许有 matplotlib**；
 #   * 内核 `kernel/wt_missile.py` **逐字节**保留 ⇒ `solver.SOLVER_SHA256` 仍是同一个值；
-#   * 游戏数据**不入库、不随包** ⇒ 运行期由环境变量 `DATA_DIR` 给（见 data/README.md）。
+#   * 游戏数据**不入库、不随包** ⇒ 运行期由环境变量 `DATA_DIR` 给（见 data/README.md）；
+#     手上那份数据是不是本包钉的版本，用 `missile_solver.verify_data(dir)` 逐条哈希核对。
 #
 # 许可：**GNU Affero General Public License, Version 3**（SPDX `AGPL-3.0-only`）。
-# 根目录 `LICENSE` 是与现有仓**同一份**官方英文正文（逐字未改，含 preamble）。
+# 根目录 `LICENSE` 是与抽取源仓库**同一份**官方英文正文（逐字未改，含 preamble）。
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
@@ -46,5 +47,6 @@ Source = "https://github.com/Strinova-xinghui/missile-solver"
 where = ["src"]
 
 [tool.setuptools.package-data]
-# 内核源码是**包数据**（不 import，只被复制到宿主目录），必须随 wheel 走。
-"missile_solver" = ["py.typed", "kernel/*.py"]
+# 内核源码是**包数据**（不 import，只被复制到宿主目录），必须随 wheel 走；
+# `data/checksums.json` 是数据闸门的哈希表（只有哈希，无游戏内容），装完也要能核对。
+"missile_solver" = ["py.typed", "kernel/*.py", "data/*.json"]

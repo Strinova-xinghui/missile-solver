@@ -36,6 +36,15 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 CHECKSUMS = REPO / "data" / "checksums.json"
 
+#: 让脚本**免安装**也能用包内的实现（闸门只有一份实现，别在脚本里抄第二份）。
+if str(REPO / "src") not in sys.path:
+    sys.path.insert(0, str(REPO / "src"))
+try:
+    from missile_solver import _data
+except Exception as exc:                                            # noqa: BLE001
+    sys.exit(f"✗ 导不进 missile_solver（{type(exc).__name__}: {exc}）；"
+             f"先 `pip install -e .` 或从仓库根运行本脚本")
+
 #: 钉死的上游（与 data/checksums.json 的 `upstream_datamine` 同源）。
 UPSTREAM = "https://github.com/gszabi99/War-Thunder-Datamine"
 TAG = "2.59.0.28"
@@ -52,9 +61,11 @@ def sha256(p: Path) -> str:
 
 
 def load_table() -> dict:
-    if not CHECKSUMS.is_file():
-        sys.exit(f"✗ 找不到哈希表：{CHECKSUMS}")
-    return json.loads(CHECKSUMS.read_text(encoding="utf-8"))
+    """哈希表由包内那份统一提供（`missile_solver._data.checksums_path()`）—— 一份实现。"""
+    try:
+        return json.loads(_data.checksums_path().read_text(encoding="utf-8"))
+    except Exception as exc:                                        # noqa: BLE001
+        sys.exit(f"✗ 找不到/读不了哈希表：{exc}")
 
 
 def explain() -> int:
@@ -85,61 +96,24 @@ def verify(directory: Path) -> int:
     * `files`：168 份 `*.blk` + `presets.json` ⇒ **必须逐条相符**；
     * `manifest.json`：不在它自己的 files 表里 ⇒ 单独记 `manifest_sha256`，必须相符；
     * `optional_files`：解包器侧 3 个辅助件 ⇒ 有就核、没有不算失败。
+
+    **实现的唯一归属是 `missile_solver._data.verify_data()`** —— 这里只负责打印与退出码，
+    刻意不在脚本里抄第二份比对逻辑（两份实现迟早会漂）。
     """
     t = load_table()
-    want = t["files"]
-    optional = t.get("optional_files") or {}
     if not directory.is_dir():
         sys.exit(f"✗ {directory} 不是目录")
-    missing, mismatched = [], []
-    for name, digest in sorted(want.items()):
-        p = directory / name
-        if not p.is_file():
-            missing.append(name)
-            continue
-        got = sha256(p)
-        if got != digest:
-            mismatched.append((name, digest, got))
-    man_bad = None
-    man = directory / "manifest.json"
-    if not man.is_file():
-        missing.append("manifest.json")
-    elif sha256(man) != t["manifest_sha256"]:
-        man_bad = (t["manifest_sha256"], sha256(man))
-    opt_ok, opt_bad, opt_absent = 0, [], []
-    for name, digest in sorted(optional.items()):
-        p = directory / name
-        if not p.is_file():
-            opt_absent.append(name)
-        elif sha256(p) == digest:
-            opt_ok += 1
-        else:
-            opt_bad.append(name)
-    known = set(want) | {"manifest.json"} | set(optional)
-    extra = sorted(p.name for p in directory.glob("*") if p.is_file() and p.name not in known)
+    want = t["files"]
     n_blk = len(list(directory.glob("*.blk")))
+    ok, problems = _data.verify_data(directory)
 
     print(f"目录：{directory}")
     print(f"  必须 {len(want)} 条（*.blk {t['counts']['blk']}）+ manifest.json；"
           f"实际 *.blk {n_blk} 份")
-    if man_bad:
-        print(f"  ✗ manifest.json 哈希不符：期望 {man_bad[0]}\n      实际 {man_bad[1]}")
-    if mismatched:
-        print(f"  ✗ 哈希不符 {len(mismatched)} 条：")
-        for name, a, b in mismatched[:10]:
-            print(f"      {name}\n        期望 {a}\n        实际 {b}")
-    if missing:
-        print(f"  ✗ 缺件 {len(missing)} 条：{missing[:10]}{' …' if len(missing) > 10 else ''}")
-    if opt_bad:
-        print(f"  ✗ 可选件哈希不符：{opt_bad}")
-    if opt_ok or opt_absent:
-        print(f"  · 可选辅助件：相符 {opt_ok} 个、缺席 {len(opt_absent)} 个"
-              f"（内核不读，不算失败）：{opt_absent}")
-    if extra:
-        print(f"  ⚠ 多出来的文件 {len(extra)} 个（不影响内核，但说明目录不干净）："
-              f"{extra[:10]}{' …' if len(extra) > 10 else ''}")
-    if mismatched or missing or man_bad or opt_bad:
-        print("✗ 校验未通过：这份数据**不是**本包钉的那个 2.59.0.28 快照。"
+    for p in problems:
+        print(("  · " if p.startswith(("⚠", "（")) else "  ✗ ") + p)
+    if not ok:
+        print("✗ 校验未通过：这份数据**不是**本包钉的那个快照。"
               "（从 Datamine 下的是 JSON，永远过不了这道闸门 —— 见 data/README.md §2）")
         return 1
     print(f"OK：{len(want) + 1}/{len(want) + 1} 条哈希一致 ✓"
