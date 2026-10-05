@@ -48,3 +48,29 @@ def test_readme_points_to_the_contract_doc_and_states_the_scope():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "docs/SOLVER-API.md" in readme, "README 没有指向接口契约文档"
     assert "只提供数据与计算" in readme, "README 没有说明本包的边界（只提供数据与计算）"
+
+
+def test_version_and_tier_section_covers_the_version_gate():
+    """用户反复问的四件（版本门 / 档位真值表 / `pro` 归宿 / 升版本清单）必须有落盘的一节。
+
+    判据刻意分两层：关键词在**全文**里（够用即可被发现）与在 **§8 正文**里（防止散落各处混过去）。
+    README 必须指向这一节 —— 否则第三方读到契约也找不到这张真值表。
+    """
+    text = DOC.read_text(encoding="utf-8")
+    assert "版本与档位" in text, "缺「版本与档位」一节"
+    keys = ("默认时间步", "PROFILES_BY_VERSION", "ELF_BY_VERSION", "差分对拍", "CACHE_SCHEMA", "pro")
+    missing = [k for k in keys if k not in text]
+    assert not missing, f"「版本与档位」缺关键词：{missing}"
+
+    parts = text.split("## 8. 版本与档位", 1)
+    assert len(parts) == 2, "「版本与档位」不是以 `## 8.` 标题给出的"
+    body8 = parts[1]
+    for k in ("默认时间步", "PROFILES_BY_VERSION", "ELF_BY_VERSION", "差分对拍", "CACHE_SCHEMA"):
+        assert k in body8, f"{k} 不在 §8 正文里"
+    # 两轴真值表要给全四种组合（四行里都提到档位名）
+    assert "standard" in body8 and "fast" in body8
+    assert "2.59.0.28" in body8 and "2.59.0.22" in body8
+    assert "差分对拍" in body8 and "外推" in body8, "没写验证的边界（对拍只覆盖探针工况集）"
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "版本与档位" in readme, "README 没有指向「版本与档位」一节"
